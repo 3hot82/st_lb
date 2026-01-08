@@ -2,48 +2,70 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardMarkup
 
 def get_media_pagination(game_id: int, current_index: int, total_count: int, media_type: str) -> InlineKeyboardMarkup:
-    """
-    Кнопки для листания медиа.
-    current_index:
-      -1 = Главная картинка (Header)
-       0..N = Скриншоты
-       N+1..M = Видео
-    """
+    """Кнопки для листания картинок (Верхнее сообщение)"""
     builder = InlineKeyboardBuilder()
     
-    # Кнопка Назад
     if current_index > -1:
         builder.button(text="⬅️", callback_data=f"media_{game_id}_{current_index - 1}")
     
-    # Центральная кнопка (индикатор)
-    label = "Главная" if current_index == -1 else f"{current_index + 1}/{total_count}"
-    builder.button(text=f"🖼 {label}", callback_data="ignore")
+    if current_index == -1:
+        label = "Обложка"
+        action = "ignore"
+    else:
+        label = f"Скрин {current_index + 1}/{total_count}"
+        action = f"media_{game_id}_-1"
 
-    # Кнопка Вперед
+    builder.button(text=f"🖼 {label}", callback_data=action)
+
     if current_index < total_count - 1:
         builder.button(text="➡️", callback_data=f"media_{game_id}_{current_index + 1}")
     
-    builder.adjust(3)
+    width = 1
+    if current_index > -1: width += 1
+    if current_index < total_count - 1: width += 1
+    
+    builder.adjust(width)
     return builder.as_markup()
 
-def get_info_pagination(game_id: int, current_page: int, total_pages: int) -> InlineKeyboardMarkup:
-    """Кнопки для листания текста"""
+# === ИЗМЕНЕНИЕ ЗДЕСЬ ===
+def get_info_pagination(game_id: int, current_page: int, total_pages: int, image_msg_id: int = 0) -> InlineKeyboardMarkup:
+    """
+    Кнопки для текста.
+    image_msg_id: ID сообщения с картинкой, которое висит выше.
+    """
     builder = InlineKeyboardBuilder()
     
-    # Навигация страниц
-    if current_page > 1:
-        builder.button(text="⬅️ Назад", callback_data=f"info_{game_id}_{current_page - 1}")
+    # Мы добавляем image_msg_id в callback_data кнопок навигации, 
+    # чтобы не потерять его при переключении страниц текста.
+    # Формат: info_GAMEID_PAGE_IMGID
     
-    builder.button(text=f"📄 Стр. {current_page}/{total_pages}", callback_data="ignore")
+    if total_pages == 2:
+        if current_page == 1:
+            builder.button(text="🛠 Требования и Детали ➡️", callback_data=f"info_{game_id}_2_{image_msg_id}")
+        else:
+            builder.button(text="⬅️ Об игре", callback_data=f"info_{game_id}_1_{image_msg_id}")
+    else:
+        if current_page > 1:
+            builder.button(text="⬅️", callback_data=f"info_{game_id}_{current_page - 1}_{image_msg_id}")
+        builder.button(text=f"{current_page}/{total_pages}", callback_data="ignore")
+        if current_page < total_pages:
+            builder.button(text="➡️", callback_data=f"info_{game_id}_{current_page + 1}_{image_msg_id}")
     
-    if current_page < total_pages:
-        builder.button(text="Вперед ➡️", callback_data=f"info_{game_id}_{current_page + 1}")
+    builder.adjust(1)
     
-    # Дополнительные действия (всегда внизу)
-    builder.row(
-        # Кнопка ачивок (ведет в другой хендлер)
-        # builder.button(text="🏆 Ачивки", callback_data=f"achievements_{game_id}") # Раскомментируй, когда сделаем ачивки
+    row_btns = []
+    
+    # === ГЛАВНОЕ ИЗМЕНЕНИЕ ===
+    # Передаем image_msg_id в кнопку ачивок: ach_GAMEID_INDEX_IMGID
+    row_btns.append(
+        InlineKeyboardBuilder().button(text="🏆 Ачивки", callback_data=f"ach_{game_id}_0_{image_msg_id}").as_markup().inline_keyboard[0][0]
     )
+    
+    row_btns.append(
+        InlineKeyboardBuilder().button(text="🛒 Steam", url=f"https://store.steampowered.com/app/{game_id}/").as_markup().inline_keyboard[0][0]
+    )
+    
+    builder.row(*row_btns)
     
     return builder.as_markup()# Файл: steam_bot/keyboards/main_menu.py
 
@@ -69,6 +91,35 @@ def get_onboarding_kb() -> InlineKeyboardMarkup:
     """Кнопка помощи при регистрации"""
     builder = InlineKeyboardBuilder()
     builder.button(text="❓ Где взять ссылку?", callback_data="help_steam_link")
+    return builder.as_markup()from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardMarkup
+
+def get_achievements_pagination(game_id: int, current_index: int, total_count: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    
+    # 1. Кнопка Назад (или в конец, если мы в начале)
+    if current_index > 0:
+        builder.button(text="⬅️", callback_data=f"ach_{game_id}_{current_index - 1}")
+    else:
+        builder.button(text="🔚", callback_data=f"ach_{game_id}_{total_count - 1}")
+
+    # 2. Индикатор
+    builder.button(text=f"{current_index + 1}/{total_count}", callback_data="ignore")
+
+    # 3. Кнопка Вперед (или в начало, если мы в конце)
+    if current_index < total_count - 1:
+        builder.button(text="➡️", callback_data=f"ach_{game_id}_{current_index + 1}")
+    else:
+        builder.button(text="🔄", callback_data=f"ach_{game_id}_0")
+    
+    builder.adjust(3)
+    
+    # 4. Кнопка возврата к карточке игры
+    builder.row(
+        # Эта кнопка вызовет view_game_, который вернет стандартный интерфейс игры
+        InlineKeyboardBuilder().button(text="🔙 К карточке игры", callback_data=f"view_game_{game_id}").as_markup().inline_keyboard[0][0]
+    )
+    
     return builder.as_markup()# Файл: steam_bot/keyboards/game_card.py
 
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -143,24 +194,111 @@ async def check_game():
     await engine.dispose()
 
 if __name__ == "__main__":
-    asyncio.run(check_game())# Файл: steam_bot/services/steam.py
+    asyncio.run(check_game())btn-profile = 👤 My Profile
+btn-search = 🎮 Search Games
+btn-random = 🎲 Random Game
+btn-settings = ⚙️ Settings
+btn-back = 🔙 Back
+btn-achievements = 🏆 Achievements
+btn-store = 🛒 Steam Store
 
-import aiohttp
+welcome = 👋 <b>Hi! I'm Steam Explorer.</b>
+    Type a game name to start.
+
+welcome-back = 👋 Welcome back, <b>{ $name }</b>!
+
+search-prompt = ✍️ Just type the game name.
+search-not-found = ❌ Nothing found for <b>'{ $query }'</b>.
+search-found = 🔎 Found { $count } games. Choose one:
+
+profile-info = 👤 <b>Your Profile:</b>
+    🆔 Steam ID: <code>{ $steamid }</code>
+    🌍 Region: <b>{ $country }</b>
+
+achievements-loading = ⏳ Loading achievements...
+achievements-empty = ❌ No achievements found.
+achievement-hidden = 🔒 <i>Hidden achievement.</i>
+achievement-stat = 📊 { $rarity }: { $emoji } <b>{ $percent }%</b> players
+
+rarity-common = Common
+rarity-rare = Rare
+rarity-legendary = Legendary
+
+err-load = ⚠️ Failed to load file.# Общие кнопки
+btn-profile = 👤 Мой профиль
+btn-search = 🎮 Поиск игр
+btn-random = 🎲 Случайная игра
+btn-settings = ⚙️ Настройки
+btn-back = 🔙 Назад
+btn-achievements = 🏆 Ачивки
+btn-store = 🛒 Steam Store
+
+# Приветствие
+welcome = 👋 <b>Привет! Я Steam Explorer.</b>
+    
+    Я помогу тебе:
+    🔹 Следить за ачивками
+    🔹 Искать игры
+    🔹 Узнать время прохождения
+    
+    Нажми кнопку ниже или напиши название игры.
+
+welcome-back = 👋 С возвращением, <b>{ $name }</b>!
+
+# Поиск
+search-prompt = ✍️ Просто напиши название игры в чат.
+    <i>Например: Ведьмак, CS2, Stalker</i>
+
+search-not-found = ❌ По запросу <b>'{ $query }'</b> ничего не найдено.
+search-found = 🔎 Найдено игр: { $count }. Выбери нужную:
+
+# Профиль
+profile-info = 👤 <b>Твой профиль:</b>
+    🆔 Steam ID: <code>{ $steamid }</code>
+    🌍 Регион: <b>{ $country }</b>
+    
+    Для обновления отправь /refresh
+
+# Ачивки
+achievements-loading = ⏳ Ачивки не найдены. Загружаю из Steam...
+achievements-empty = ❌ У этой игры нет ачивок или ошибка Steam.
+achievement-hidden = 🔒 <i>Это скрытое достижение.</i>
+achievement-stat = 📊 { $rarity }: { $emoji } <b>{ $percent }%</b> игроков
+
+rarity-common = Обычная
+rarity-rare = Редкая
+rarity-legendary = Легендарная
+
+# Ошибки
+err-load = ⚠️ Не удалось загрузить файл.from fluentogram import FluentTranslator, TranslatorHub
+from fluentogram.resources import FluentResourceLoader
+
+def create_translator_hub() -> TranslatorHub:
+    """
+    Создает и настраивает хаб переводчиков.
+    """
+    loader = FluentResourceLoader("locales/{locale}")
+    
+    return TranslatorHub(
+        # Словарь: "код языка": ("список", "файлов", "перевода")
+        {"ru": ("ru", "messages.ftl"),
+         "en": ("en", "messages.ftl")},
+        
+        # Основной переводчик (если язык не найден, будет использоваться этот)
+        root_locale="ru" 
+    )import aiohttp
 from typing import Optional, Dict, List, Any
 from config import conf
 
 class SteamService:
     BASE_URL = "http://api.steampowered.com"
+    STORE_URL = "https://store.steampowered.com/api"
 
     def __init__(self):
         self.api_key = conf.steam_api_key
 
     async def resolve_vanity_url(self, vanity_url: str) -> Optional[str]:
-        """Превращает никнейм (vanity url) в SteamID64"""
-        # Очищаем ссылку, если пользователь скинул полный URL
         clean_url = vanity_url.rstrip('/').split('/')[-1]
-        
-        # Если это уже цифры и их 17 - это ID
         if clean_url.isdigit() and len(clean_url) == 17:
             return clean_url
 
@@ -176,7 +314,6 @@ class SteamService:
         return None
 
     async def get_player_summary(self, steam_id: str) -> Dict[str, Any]:
-        """Получает аватарку и никнейм"""
         url = f"{self.BASE_URL}/ISteamUser/GetPlayerSummaries/v0002/"
         params = {"key": self.api_key, "steamids": steam_id}
         
@@ -187,29 +324,82 @@ class SteamService:
                 return players[0] if players else {}
 
     async def get_owned_games(self, steam_id: str) -> Optional[List[Dict]]:
-        """
-        Получает список игр.
-        Возвращает None, если профиль скрыт.
-        Возвращает пустой список [], если игр нет.
-        """
         url = f"{self.BASE_URL}/IPlayerService/GetOwnedGames/v0001/"
         params = {
             "key": self.api_key,
             "steamid": steam_id,
-            "include_appinfo": 1, # Названия игр
+            "include_appinfo": 1,
             "include_played_free_games": 1
         }
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, params=params) as resp:
-                if resp.status == 500: return None # Часто бывает при скрытом профиле
+                if resp.status == 500: return None
                 data = await resp.json()
         
         response = data.get('response', {})
-        # Если ключа 'games' нет, значит профиль скрыт или игр нет
         return response.get('games')
 
-# Создаем экземпляр, чтобы импортировать его
+    async def get_game_price(self, app_id: int, country: str) -> Optional[str]:
+        url = f"{self.STORE_URL}/appdetails"
+        params = {
+            "appids": app_id,
+            "cc": country,
+            "filters": "price_overview"
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params) as resp:
+                    if resp.status != 200: return None
+                    data = await resp.json()
+                    game_data = data.get(str(app_id), {})
+                    if not game_data.get('success'): return None
+                    
+                    if game_data.get('data', {}).get('is_free'):
+                        return "Free"
+                        
+                    price_data = game_data.get('data', {}).get('price_overview')
+                    if not price_data: return None
+                        
+                    return price_data.get('final_formatted')
+        except Exception as e:
+            print(f"Error fetching price: {e}")
+            return None
+
+    # === НОВЫЕ МЕТОДЫ ДЛЯ АЧИВОК ===
+
+    async def get_game_schema(self, app_id: int, language: str) -> Dict[str, Any]:
+        """Получает схему ачивок (имена, описания, иконки)"""
+        url = f"{self.BASE_URL}/ISteamUserStats/GetSchemaForGame/v2/"
+        params = {
+            "key": self.api_key,
+            "appid": app_id,
+            "l": language # 'russian' или 'english'
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as resp:
+                if resp.status != 200: return {}
+                data = await resp.json()
+                
+                # Преобразуем список в словарь {api_name: data} для удобства
+                achievements = data.get('game', {}).get('availableGameStats', {}).get('achievements', [])
+                return {ach['name']: ach for ach in achievements}
+
+    async def get_global_achievement_percentages(self, app_id: int) -> Dict[str, float]:
+        """Получает % получения"""
+        url = f"{self.BASE_URL}/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v0002/"
+        params = {"gameid": app_id}
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as resp:
+                if resp.status != 200: return {}
+                data = await resp.json()
+                
+                stats = data.get('achievementpercentages', {}).get('achievements', [])
+                return {s['name']: s['percent'] for s in stats}
+
 steam_service = SteamService()import re
 
 # Словарь раскладки
@@ -272,6 +462,268 @@ def clean_query(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     
     return textimport asyncio
+import logging
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.dialects.postgresql import insert
+
+from database.models.game import Achievement
+from services.steam import steam_service
+
+async def sync_game_achievements(session: AsyncSession, game_id: int) -> bool:
+    """
+    Скачивает ачивки из Steam (EN + RU + Статистика) и сохраняет в БД.
+    Возвращает True, если ачивки найдены и сохранены.
+    """
+    logging.info(f"🔄 Syncing achievements for Game ID: {game_id}...")
+
+    # 1. Запрашиваем данные параллельно
+    stats_task = steam_service.get_global_achievement_percentages(game_id)
+    schema_en_task = steam_service.get_game_schema(game_id, "english")
+    schema_ru_task = steam_service.get_game_schema(game_id, "russian")
+
+    # Ждем выполнения
+    stats, schema_en, schema_ru = await asyncio.gather(stats_task, schema_en_task, schema_ru_task)
+
+    if not schema_en:
+        logging.warning(f"❌ Ачивки для {game_id} не найдены в Steam.")
+        return False
+
+    achievements_to_insert = []
+
+    # 2. Объединяем данные
+    for api_name, data_en in schema_en.items():
+        data_ru = schema_ru.get(api_name, {})
+        
+        # Безопасное получение процента
+        raw_percent = stats.get(api_name, 0.0)
+        try:
+            percent = float(raw_percent)
+        except (ValueError, TypeError):
+            percent = 0.0
+        
+        icon_url = data_en.get('icon')
+        
+        locales = {
+            "en": {
+                "name": data_en.get('displayName'),
+                "desc": data_en.get('description')
+            },
+            "ru": {
+                "name": data_ru.get('displayName', data_en.get('displayName')),
+                "desc": data_ru.get('description')
+            }
+        }
+
+        is_hidden = data_en.get('hidden', 0) == 1
+
+        ach_data = {
+            "game_id": game_id,
+            "api_name": api_name,
+            "icon_url": icon_url,
+            "global_percent": percent,
+            "is_hidden": is_hidden,
+            "locales": locales
+        }
+        achievements_to_insert.append(ach_data)
+
+    if not achievements_to_insert:
+        return False
+
+    # 3. Сохраняем в БД (Mass Upsert)
+    try:
+        stmt = insert(Achievement).values(achievements_to_insert)
+        
+        update_stmt = stmt.on_conflict_do_update(
+            constraint='uix_game_achievement',
+            set_={
+                "icon_url": stmt.excluded.icon_url,
+                "global_percent": stmt.excluded.global_percent,
+                "locales": stmt.excluded.locales,
+                "is_hidden": stmt.excluded.is_hidden
+            }
+        )
+        
+        await session.execute(update_stmt)
+        await session.commit()
+        logging.info(f"✅ Загружено {len(achievements_to_insert)} ачивок для {game_id}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"❌ Ошибка сохранения ачивок: {e}")
+        await session.rollback()
+        return Falseaiofiles==25.1.0
+aiogram==3.23.0
+aiohappyeyeballs==2.6.1
+aiohttp==3.13.2
+aiosignal==1.4.0
+aiounittest==1.5.0
+alembic==1.17.2
+annotated-types==0.7.0
+APScheduler==3.11.2
+asyncpg==0.31.0
+attrs==25.4.0
+babel==2.17.0
+beautifulsoup4==4.14.3
+black==25.12.0
+certifi==2025.11.12
+charset-normalizer==3.4.4
+click==8.3.1
+cloudscraper==1.2.71
+colorlog==6.10.1
+cryptg==0.5.2
+fake-useragent==2.2.0
+fluent-compiler==1.1
+fluent.syntax==0.19.0
+fluentogram==1.2.1
+frozenlist==1.8.0
+greenlet==3.3.0
+howlongtobeatpy==1.0.19
+idna==3.11
+iniconfig==2.3.0
+isort==7.0.0
+kagglehub==0.3.13
+librt==0.7.5
+loguru==0.7.3
+lxml==6.0.2
+magic-filter==1.0.12
+Mako==1.3.10
+MarkupSafe==3.0.3
+multidict==6.7.0
+mypy==1.19.1
+mypy_extensions==1.1.0
+numpy==2.4.0
+packaging==25.0
+pandas==2.3.3
+pathspec==0.12.1
+pillow==12.0.0
+platformdirs==4.5.1
+playwright==1.57.0
+pluggy==1.6.0
+propcache==0.4.1
+pyaes==1.6.1
+pyasn1==0.6.1
+pydantic==2.12.5
+pydantic-settings==2.12.0
+pydantic_core==2.41.5
+pyee==13.0.0
+Pygments==2.19.2
+pyparsing==3.3.1
+Pyrogram==2.0.106
+PySocks==1.7.1
+pytest==9.0.2
+pytest-asyncio==1.3.0
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.1
+pytokens==0.3.0
+pytz==2025.2
+PyYAML==6.0.3
+redis==7.1.0
+requests==2.32.5
+requests-toolbelt==1.0.0
+rsa==4.9.1
+six==1.17.0
+soupsieve==2.8.1
+SQLAlchemy==2.0.45
+Telethon==1.42.0
+TgCrypto==1.2.5
+tqdm==4.67.1
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+tzdata==2025.3
+tzlocal==5.3.1
+urllib3==2.6.2
+wrapt==2.0.1
+yarl==1.22.0
+yt-dlp==2025.12.8
+import asyncio
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+
+from config import conf
+from database.models import Game
+
+# ID игры Detroit
+TARGET_ID = 1222140 
+
+async def inspect_media():
+    engine = create_async_engine(conf.database_url, echo=False)
+    # Используем фабрику сессий
+    session_maker = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_maker() as session:
+        print(f"🔎 Проверяем медиа для ID: {TARGET_ID}...\n")
+
+        result = await session.execute(select(Game).where(Game.id == TARGET_ID))
+        game = result.scalars().first()
+
+        if not game:
+            print("❌ Игра не найдена в базе.")
+            return
+
+        extra = game.extra_data or {}
+        locales = game.locales or {}
+        ru_data = locales.get('ru', {})
+
+        # 1. ОБЛОЖКА
+        print(f"🖼 HEADER IMAGE (Обложка):")
+        print(f"   {ru_data.get('header_image')}")
+        print("-" * 40)
+
+        # 2. СКРИНШОТЫ
+        screenshots = extra.get('screenshots', [])
+        print(f"📸 SCREENSHOTS (Всего: {len(screenshots)}):")
+        for i, url in enumerate(screenshots):
+            print(f"   {i+1}. {url}")
+        
+        print("-" * 40)
+
+        # 3. ВИДЕО (Трейлеры)
+        movies = extra.get('movies', [])
+        print(f"🎥 MOVIES (Всего: {len(movies)}):")
+        if not movies:
+            print("   (Список пуст)")
+        else:
+            for i, url in enumerate(movies):
+                print(f"   {i+1}. {url}")
+
+    await engine.dispose()
+
+if __name__ == "__main__":
+    asyncio.run(inspect_media())import asyncio
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
+from database.models.base import Base
+from config import conf
+from database.models.game import Achievement 
+
+async def recreate_table():
+    engine = create_async_engine(conf.database_url, echo=True)
+    async with engine.begin() as conn:
+        print("🗑 Удаляем старую таблицу achievements...")
+        await conn.execute(text("DROP TABLE IF EXISTS achievements CASCADE;"))
+        
+        print("🆕 Создаем новую таблицу...")
+        await conn.run_sync(Base.metadata.create_all)
+        
+        # === ЯВНОЕ СОЗДАНИЕ ОГРАНИЧЕНИЯ ===
+        print("🔒 Добавляем уникальное ограничение...")
+        # Если SQLAlchemy не создала его сама, создадим вручную
+        await conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uix_game_achievement') THEN
+                    ALTER TABLE achievements ADD CONSTRAINT uix_game_achievement UNIQUE (game_id, api_name);
+                END IF;
+            END
+            $$;
+        """))
+        
+    print("✅ Таблица achievements пересоздана и настроена!")
+    await engine.dispose()
+
+if __name__ == "__main__":
+    asyncio.run(recreate_table())import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine
 from database.models.base import Base
 from database.models.user import User, UserLibrary
@@ -340,7 +792,50 @@ class UserStates(StatesGroup):
     waiting_for_steam_link = State()
     
     # Состояние, когда бот ждет поисковый запрос (если мы сделаем отдельную кнопку "Поиск")
-    waiting_for_search = State()# Файл: steam_bot/middlewares/db_session.py
+    waiting_for_search = State()from typing import Callable, Dict, Any, Awaitable
+from aiogram import BaseMiddleware
+from aiogram.types import TelegramObject, User
+from fluentogram import TranslatorHub
+
+from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy import select
+from database.models import User as DBUser
+
+class TranslatorRunnerMiddleware(BaseMiddleware):
+    def __init__(self, session_pool: async_sessionmaker, translator_hub: TranslatorHub):
+        self.session_pool = session_pool
+        self.translator_hub = translator_hub
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any],
+    ) -> Any:
+        # 1. Получаем юзера телеграм
+        tg_user: User = data.get("event_from_user")
+        if not tg_user:
+            return await handler(event, data)
+
+        lang_code = "ru" # Язык по умолчанию
+
+        # 2. Проверяем БД (есть ли у юзера выбранный язык)
+        # Используем отдельную сессию для проверки
+        async with self.session_pool() as session:
+            result = await session.execute(select(DBUser).where(DBUser.telegram_id == tg_user.id))
+            db_user = result.scalars().first()
+            
+            if db_user and db_user.language:
+                lang_code = db_user.language
+            elif tg_user.language_code:
+                # Если в БД нет, берем из настроек Телеграма (ru-RU -> ru)
+                lang_code = tg_user.language_code.split("-")[0]
+
+        # 3. Получаем "раннер" (готовый переводчик для конкретного языка)
+        # Если языка 'kz' нет в хабе, fluentogram сам откатится к root_locale (ru)
+        data["i18n"] = self.translator_hub.get_translator_by_locale(lang_code)
+        
+        return await handler(event, data)# Файл: steam_bot/middlewares/db_session.py
 
 from typing import Callable, Awaitable, Dict, Any
 from aiogram import BaseMiddleware
@@ -410,9 +905,106 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("🛑 Бот остановлен вручную.")# Файл: steam_bot/database/models/game.py
+        print("🛑 Бот остановлен вручную.")import asyncio
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.dialects.postgresql import insert
+from config import conf
+from services.steam import steam_service
+from database.models.game import Achievement, Game
 
-from sqlalchemy import Column, BigInteger, String, Integer, Float, Boolean, JSON, Text, ForeignKey, DateTime
+# ID игры (Detroit)
+TARGET_APP_ID = 1222140 
+
+async def update_achievements():
+    print(f"🚀 Начинаем загрузку ачивок для игры ID: {TARGET_APP_ID}...")
+
+    # 1. Запрашиваем данные параллельно
+    print("📥 Скачиваем данные из Steam API...")
+    stats_task = steam_service.get_global_achievement_percentages(TARGET_APP_ID)
+    schema_en_task = steam_service.get_game_schema(TARGET_APP_ID, "english")
+    schema_ru_task = steam_service.get_game_schema(TARGET_APP_ID, "russian")
+
+    stats, schema_en, schema_ru = await asyncio.gather(stats_task, schema_en_task, schema_ru_task)
+
+    if not schema_en:
+        print("❌ Не удалось получить схему ачивок.")
+        return
+
+    print(f"✅ Получено ачивок: {len(schema_en)}")
+    
+    achievements_to_insert = []
+
+    # 2. Объединяем данные
+    for api_name, data_en in schema_en.items():
+        data_ru = schema_ru.get(api_name, {})
+        
+        # === ИСПРАВЛЕНИЕ ОШИБКИ ===
+        # Явно преобразуем процент в float, так как API может вернуть строку '6.9'
+        raw_percent = stats.get(api_name, 0.0)
+        try:
+            percent = float(raw_percent)
+        except (ValueError, TypeError):
+            percent = 0.0
+        
+        # Иконка (берем из EN)
+        icon_url = data_en.get('icon')
+        
+        # Локализация
+        locales = {
+            "en": {
+                "name": data_en.get('displayName'),
+                "desc": data_en.get('description')
+            },
+            "ru": {
+                "name": data_ru.get('displayName', data_en.get('displayName')),
+                "desc": data_ru.get('description')
+            }
+        }
+
+        is_hidden = data_en.get('hidden', 0) == 1
+
+        ach_data = {
+            "game_id": TARGET_APP_ID,
+            "api_name": api_name,
+            "icon_url": icon_url,
+            "global_percent": percent, # Теперь это точно число
+            "is_hidden": is_hidden,
+            "locales": locales
+        }
+        achievements_to_insert.append(ach_data)
+
+    # 3. Сохраняем в БД
+    engine = create_async_engine(conf.database_url, echo=False)
+    
+    async with engine.begin() as conn:
+        # Гарантируем, что игра существует
+        await conn.execute(
+            insert(Game).values(id=TARGET_APP_ID, name="Detroit: Become Human")
+            .on_conflict_do_nothing()
+        )
+
+        print(f"💾 Сохраняем {len(achievements_to_insert)} записей в БД...")
+        
+        stmt = insert(Achievement).values(achievements_to_insert)
+        
+        # UPSERT
+        update_stmt = stmt.on_conflict_do_update(
+            constraint='uix_game_achievement',
+            set_={
+                "icon_url": stmt.excluded.icon_url,
+                "global_percent": stmt.excluded.global_percent,
+                "locales": stmt.excluded.locales,
+                "is_hidden": stmt.excluded.is_hidden
+            }
+        )
+        
+        await conn.execute(update_stmt)
+    
+    print("🎉 Готово! Ачивки загружены.")
+    await engine.dispose()
+
+if __name__ == "__main__":
+    asyncio.run(update_achievements())from sqlalchemy import Column, BigInteger, String, Integer, Float, Boolean, JSON, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .base import Base
@@ -423,7 +1015,7 @@ class Game(Base):
     id = Column(BigInteger, primary_key=True)  # Steam AppID
     name = Column(String, index=True)
     
-    # Экономика
+    # Экономика (Базовая в USD)
     price_current = Column(Float, default=0.0)
     is_free = Column(Boolean, default=False)
     currency = Column(String, default="USD")
@@ -440,7 +1032,7 @@ class Game(Base):
     time_100 = Column(Float, default=0)
     hltb_id = Column(String, nullable=True)
 
-    # JSON данные (Локализация и Технические)
+    # JSON данные
     locales = Column(JSON, default={})
     extra_data = Column(JSON, default={})
 
@@ -457,8 +1049,8 @@ class Achievement(Base):
     game_id = Column(BigInteger, ForeignKey("games.id"), index=True)
     
     api_name = Column(String)
-    category = Column(String, default="base") # base / dlc_name
-    locales = Column(JSON, default={})        # {"ru": {...}, "en": {...}}
+    category = Column(String, default="base")
+    locales = Column(JSON, default={})
     icon_url = Column(String)
     
     is_hidden = Column(Boolean, default=False)
@@ -470,15 +1062,23 @@ class PriceAlert(Base):
     __tablename__ = "price_alerts"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(BigInteger, index=True) # Telegram ID
+    user_id = Column(BigInteger, index=True)
     game_id = Column(BigInteger, ForeignKey("games.id"))
-    target_price = Column(Integer) # Цена, которую ждет юзер
+    target_price = Column(Integer)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    game = relationship("Game", back_populates="price_alerts")# Файл: steam_bot/database/models/user.py
+    game = relationship("Game", back_populates="price_alerts")
 
-from sqlalchemy import Column, BigInteger, String, Integer, Boolean, JSON, ForeignKey, DateTime
+# НОВАЯ МОДЕЛЬ ДЛЯ КЭША ЦЕН
+class GamePrice(Base):
+    __tablename__ = "game_prices"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    game_id = Column(BigInteger, index=True)
+    country_code = Column(String, index=True)
+    price_fmt = Column(String) # Отформатированная цена (напр. "5 900₸")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())from sqlalchemy import Column, BigInteger, String, Integer, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .base import Base
@@ -491,6 +1091,10 @@ class User(Base):
     
     username = Column(String, nullable=True)
     language = Column(String, default="ru")
+    avatar_url = Column(String, nullable=True)
+    
+    # НОВОЕ ПОЛЕ
+    country = Column(String, default="US") 
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
@@ -507,11 +1111,8 @@ class UserLibrary(Base):
     playtime_forever = Column(Integer, default=0) # Минуты
     playtime_2weeks = Column(Integer, default=0)
     
-    user = relationship("User", back_populates="library")
-    # game = relationship("Game") # Можно раскомментировать, если нужен прямой доступ к игре# Файл: steam_bot/database/models/__init__.py
-
-from .base import Base
-from .game import Game, Achievement, PriceAlert
+    user = relationship("User", back_populates="library")from .base import Base
+from .game import Game, Achievement, PriceAlert, GamePrice # <--- Добавили GamePrice
 from .user import User, UserLibrary
 
 __all__ = [
@@ -519,6 +1120,7 @@ __all__ = [
     "Game",
     "Achievement",
     "PriceAlert",
+    "GamePrice", # <--- Добавили сюда
     "User",
     "UserLibrary"
 ]# Файл: steam_bot/database/models/base.py
@@ -550,7 +1152,7 @@ async def get_session() -> AsyncSession:
     async with session_maker() as session:
         yield sessionfrom sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
-from database.models import User, UserLibrary, Game # Добавили Game
+from database.models import User, UserLibrary, Game
 
 class UserRepo:
     def __init__(self, session: AsyncSession):
@@ -560,7 +1162,11 @@ class UserRepo:
         result = await self.session.execute(select(User).where(User.telegram_id == telegram_id))
         return result.scalars().first()
 
-    async def create_or_update(self, telegram_id: int, steam_id: int, username: str = None, avatar: str = None):
+    async def create_or_update(self, telegram_id: int, steam_id: int, username: str = None, avatar: str = None, country: str = None):
+        """
+        Создает или обновляет пользователя.
+        country: Код страны (например, 'KZ', 'RU', 'US'). Если None, не обновляем.
+        """
         user = await self.get_user(telegram_id)
         
         if not user:
@@ -572,40 +1178,41 @@ class UserRepo:
         if username: user.username = username
         if avatar: user.avatar_url = avatar
         
+        # Обновляем страну, только если она пришла из Steam
+        if country:
+            user.country = country
+        
         await self.session.commit()
         return user
 
     async def update_library(self, telegram_id: int, games_data: list):
         """
-        Обновляет библиотеку. Сохраняет ТОЛЬКО те игры, которые есть в нашей базе.
+        Обновляет библиотеку игр пользователя.
+        Сохраняет только те игры, которые уже есть в нашей базе данных (таблица games).
         """
-        # 1. Удаляем старое
+        # 1. Удаляем старые записи библиотеки для этого юзера
         await self.session.execute(
             delete(UserLibrary).where(UserLibrary.user_id == telegram_id)
         )
         
-        # 2. Получаем список ID всех игр, которые есть у нас в базе
-        # (Чтобы не делать 1000 запросов, выгрузим все ID из games_data и проверим их разом)
-        
-        # Собираем ID игр из стима
+        # 2. Собираем ID игр из полученных данных (где время игры > 0)
         steam_app_ids = [g['appid'] for g in games_data if g.get('playtime_forever', 0) > 0]
         
         if not steam_app_ids:
             return
 
-        # Ищем, какие из этих ID есть в нашей базе
-        # SELECT id FROM games WHERE id IN (...)
+        # 3. Ищем, какие из этих ID реально существуют в нашей таблице games
+        # (Чтобы не пытаться добавить связь с несуществующей игрой)
         result = await self.session.execute(
             select(Game.id).where(Game.id.in_(steam_app_ids))
         )
-        existing_ids = set(result.scalars().all()) # Множество существующих ID
+        existing_ids = set(result.scalars().all()) # Множество ID, которые есть в базе
         
-        # 3. Формируем список для вставки
+        # 4. Формируем список объектов для вставки
         library_items = []
         for g in games_data:
             app_id = g['appid']
             
-            # Если игра есть в нашей базе И в неё играли
             if app_id in existing_ids and g.get('playtime_forever', 0) > 0:
                 item = UserLibrary(
                     user_id=telegram_id,
@@ -615,13 +1222,14 @@ class UserRepo:
                 )
                 library_items.append(item)
         
-        # 4. Сохраняем
+        # 5. Массовая вставка
         if library_items:
             self.session.add_all(library_items)
             await self.session.commit()import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text, or_, and_, func, case
-from database.models import Game
+from sqlalchemy.orm.attributes import flag_modified # <--- ВАЖНЫЙ ИМПОРТ
+from database.models import Game, Achievement
 from services.text_utils import clean_query, fix_layout
 
 class GameRepo:
@@ -633,71 +1241,79 @@ class GameRepo:
         return result.scalars().first()
         
     async def get_random_game(self) -> Game | None:
-        """Возвращает одну случайную игру (с рейтингом и отзывами)"""
-        stmt = select(Game).where(
-            Game.reviews_total > 500  # Не совсем мусор
-        ).order_by(func.random()).limit(1)
-        
+        stmt = select(Game).where(Game.reviews_total > 500).order_by(func.random()).limit(1)
         result = await self.session.execute(stmt)
         return result.scalars().first()
+
+    async def get_achievements(self, game_id: int) -> list[Achievement]:
+        stmt = select(Achievement).where(Achievement.game_id == game_id).order_by(Achievement.global_percent.desc())
+        result = await self.session.execute(stmt)
+        return result.scalars().all()
+
+    # === ИСПРАВЛЕННЫЙ МЕТОД ===
+    async def delete_broken_media(self, game_id: int, broken_url: str):
+        """Удаляет URL из списка и ПРИНУДИТЕЛЬНО сохраняет изменения"""
+        game = await self.get_by_id(game_id)
+        if not game: return False
+
+        # Получаем данные (копируем словарь)
+        extra = dict(game.extra_data) if game.extra_data else {}
+        changed = False
+
+        # Проверяем скриншоты
+        if 'screenshots' in extra and broken_url in extra['screenshots']:
+            extra['screenshots'].remove(broken_url)
+            changed = True
+            logging.warning(f"🗑 Удален битый скриншот: {broken_url}")
+
+        # Проверяем видео
+        if 'movies' in extra and broken_url in extra['movies']:
+            extra['movies'].remove(broken_url)
+            changed = True
+            logging.warning(f"🗑 Удалено битое видео: {broken_url}")
+
+        if changed:
+            # 1. Обновляем поле
+            game.extra_data = extra
+            
+            # 2. ВАЖНО: Явно помечаем поле как измененное для SQLAlchemy
+            flag_modified(game, "extra_data")
+            
+            # 3. Сохраняем
+            await self.session.commit()
+            return True
+            
+        return False
 
     async def search(self, query: str, limit: int = 10):
         raw_q = query.strip()
         clean_q = clean_query(raw_q)     
         switched_q = fix_layout(raw_q)   
         clean_switched = clean_query(switched_q)
-        
         words = clean_q.split()
-        
-        logging.info(f"🔍 SEARCH: '{raw_q}' -> Clean: '{clean_q}'")
-
-        # Очищаем имя в БД для сравнения (убираем спецсимволы)
         db_clean_name = func.regexp_replace(Game.name, r'[^a-zA-Z0-9а-яА-Я0-9]', ' ', 'g')
 
         conditions = []
-        # 1. Нечеткий поиск
         conditions.append(text("name % :q"))
         conditions.append(text("name % :switched"))
-        # 2. Вхождение
         conditions.append(db_clean_name.ilike(f"%{clean_q}%"))
         conditions.append(db_clean_name.ilike(f"%{clean_switched}%"))
-        # 3. Пословный поиск
+        
         if len(words) > 1:
             word_conditions = [Game.name.ilike(f"%{w}%") for w in words]
             conditions.append(and_(*word_conditions))
 
-        stmt = select(Game).where(
-            or_(*conditions)
-        ).order_by(
-            # --- НОВАЯ ЛОГИКА СОРТИРОВКИ ---
-            
-            # 1. Приоритет: Если очищенное имя в БД РАВНО запросу (Half-Life == half life)
-            case(
-                (func.lower(db_clean_name) == func.lower(clean_q), 0),
-                else_=1
-            ),
-            
-            # 2. Приоритет: Если название НАЧИНАЕТСЯ с запроса
-            case(
-                (Game.name.ilike(f"{clean_q}%"), 0),
-                else_=1
-            ),
-            
-            # 3. Приоритет: Длина названия (по возрастанию).
-            # "Half-Life" (9 симв) будет выше "Half-Life 2" (11 симв)
+        stmt = select(Game).where(or_(*conditions)).order_by(
+            case((func.lower(db_clean_name) == func.lower(clean_q), 0), else_=1),
+            case((Game.name.ilike(f"{clean_q}%"), 0), else_=1),
             func.length(Game.name).asc(),
-            
-            # 4. Схожесть текста
             func.similarity(Game.name, clean_q).desc(),
-            
-            # 5. Популярность (как последний фактор)
             Game.reviews_total.desc()
         ).limit(limit)
 
         try:
             result = await self.session.execute(stmt, {"q": clean_q, "switched": clean_switched})
-            games = result.scalars().all()
-            return games
+            return result.scalars().all()
         except Exception as e:
             logging.error(f"❌ Ошибка поиска: {e}")
             return []from aiogram import Router, types, F
@@ -705,7 +1321,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.repo.games import GameRepo
 from keyboards.game_card import get_search_results_kb
-# ИЗМЕНЕНИЕ: Импортируем новую функцию send_game_interface
 from handlers.game_details import send_game_interface 
 
 router = Router()
@@ -721,8 +1336,8 @@ async def menu_random_btn(message: types.Message, session: AsyncSession):
     repo = GameRepo(session)
     game = await repo.get_random_game()
     if game:
-        # ИЗМЕНЕНИЕ: Вызываем новую функцию интерфейса
-        await send_game_interface(message, game)
+        # ДОБАВЛЕНА SESSION
+        await send_game_interface(message, game, session)
     else:
         await message.answer("В базе пока пусто 😔")
 
@@ -750,29 +1365,130 @@ async def search_games(message: types.Message, session: AsyncSession):
         return
 
     if len(games) == 1:
-        # ИЗМЕНЕНИЕ: Вызываем новую функцию интерфейса
-        await send_game_interface(message, games[0])
+        # ДОБАВЛЕНА SESSION
+        await send_game_interface(message, games[0], session)
     else:
         await message.answer(
             f"🔎 Найдено игр: {len(games)}. Выбери нужную:",
             reply_markup=get_search_results_kb(games)
-        )# Файл: steam_bot/handlers/__init__.py
+        )from aiogram import Router, types, F
+from aiogram.types import InputMediaPhoto
+from aiogram.enums import ContentType, ParseMode
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database.repo.games import GameRepo
+from keyboards.achievements import get_achievements_pagination
+from services.game_sync import sync_game_achievements # <--- Импортируем наш новый сервис
+
+router = Router()
+
+@router.callback_query(F.data.startswith("ach_"))
+async def achievement_navigation(callback: types.CallbackQuery, session: AsyncSession):
+    # data: ach_GAMEID_INDEX_IMGID
+    parts = callback.data.split("_")
+    game_id = int(parts[1])
+    index = int(parts[2])
+    image_msg_id = int(parts[3]) if len(parts) > 3 else 0
+    
+    repo = GameRepo(session)
+    
+    # 1. Пробуем получить ачивки из базы
+    achievements = await repo.get_achievements(game_id)
+    
+    # 2. Если в базе пусто — пробуем загрузить из Steam
+    if not achievements:
+        # Показываем уведомление (Toast), чтобы юзер не скучал
+        await callback.answer("⏳ Ачивки не найдены. Загружаю из Steam...", show_alert=False)
+        
+        # Запускаем синхронизацию
+        success = await sync_game_achievements(session, game_id)
+        
+        if success:
+            # Если успешно, запрашиваем список снова
+            achievements = await repo.get_achievements(game_id)
+        else:
+            return await callback.answer("❌ У этой игры нет ачивок или ошибка Steam.", show_alert=True)
+
+    # Если после загрузки все равно пусто (странно, но бывает)
+    if not achievements:
+        return await callback.answer("Список ачивок пуст.", show_alert=True)
+
+    total = len(achievements)
+    if index < 0: index = 0
+    if index >= total: index = total - 1
+    
+    ach = achievements[index]
+    
+    # --- ФОРМИРОВАНИЕ ТЕКСТА (как раньше) ---
+    locales = ach.locales or {}
+    ru_data = locales.get('ru') or {}
+    en_data = locales.get('en') or {}
+    name = ru_data.get('name') or en_data.get('name') or ach.api_name
+    
+    raw_desc = ru_data.get('desc') or en_data.get('desc')
+    if raw_desc: desc = raw_desc
+    elif ach.is_hidden: desc = "🔒 <i>Это скрытое достижение. Подробности раскрываются по ходу игры.</i>"
+    else: desc = "Описание отсутствует."
+    
+    percent = ach.global_percent
+    rarity_emoji = "🟢"
+    rarity_text = "Обычная"
+    if percent < 10: 
+        rarity_emoji = "🔴"
+        rarity_text = "Легендарная"
+    elif percent < 30: 
+        rarity_emoji = "🟡"
+        rarity_text = "Редкая"
+    
+    caption = (
+        f"🏆 <b>{name}</b>\n\n"
+        f"{desc}\n\n"
+        f"📊 {rarity_text}: {rarity_emoji} <b>{percent}%</b> игроков"
+    )
+    
+    keyboard = get_achievements_pagination(game_id, index, total)
+    
+    # --- ОТПРАВКА ---
+    
+    if callback.message.content_type == ContentType.TEXT:
+        # Вход в режим ачивок
+        await callback.message.delete()
+        
+        # Удаляем картинку игры, если она висит выше
+        if image_msg_id > 0:
+            try:
+                await callback.bot.delete_message(chat_id=callback.message.chat.id, message_id=image_msg_id)
+            except Exception:
+                pass 
+        
+        await callback.message.answer_photo(
+            photo=ach.icon_url,
+            caption=caption,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML
+        )
+    else:
+        # Листание
+        media = InputMediaPhoto(media=ach.icon_url, caption=caption, parse_mode=ParseMode.HTML)
+        try:
+            await callback.message.edit_media(media=media, reply_markup=keyboard)
+        except Exception:
+            await callback.answer()# Файл: steam_bot/handlers/__init__.py
 
 from aiogram import Router
-from . import base, onboarding, search, game_details
+from . import base, onboarding, search, game_details, achievements # <--- Добавили achievements
 
 def get_handlers_router() -> Router:
     router = Router()
     
-    # Подключаем роутеры из файлов
+    # Порядок важен (хотя тут не критично)
     router.include_router(base.router)
     router.include_router(onboarding.router)
     router.include_router(search.router)
     router.include_router(game_details.router)
+    router.include_router(achievements.router) # <--- Подключили
     
-    return router# Файл: steam_bot/handlers/onboarding.py
-
-from aiogram import Router, types, F
+    return routerfrom aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -789,16 +1505,19 @@ async def my_profile_handler(message: types.Message, state: FSMContext, session:
     user = await repo.get_user(message.from_user.id)
     
     if user and user.steam_id:
-        # Если уже подключен
+        # Показываем страну, если она есть, иначе US
+        flag = user.country if user.country else "US"
+        
         await message.answer(
             f"👤 <b>Твой профиль:</b>\n"
             f"🆔 Steam ID: <code>{user.steam_id}</code>\n"
+            f"🌍 Регион цен: <b>{flag}</b>\n"
             f"📅 Дата подключения: {user.created_at.strftime('%d.%m.%Y')}\n\n"
             "Чтобы обновить библиотеку игр, отправь /refresh",
             parse_mode="HTML"
         )
     else:
-        # Если не подключен — начинаем процесс
+        # Если не подключен
         await message.answer(
             "🔗 <b>Привязка Steam</b>\n\n"
             "Пришли мне ссылку на твой профиль Steam или твой Steam ID.\n"
@@ -833,10 +1552,14 @@ async def process_steam_link(message: types.Message, state: FSMContext, session:
         )
         return
 
-    # 3. Получаем инфо о юзере (ник, аватар)
+    # 3. Получаем инфо о юзере (ник, аватар, СТРАНА)
     player_summary = await steam_service.get_player_summary(steam_id)
     username = player_summary.get('personaname', 'Unknown')
     avatar = player_summary.get('avatarfull')
+    
+    # Получаем код страны (например, KZ, RU, US). 
+    # Придет None, если пользователь не указал страну в настройках профиля Steam.
+    country = player_summary.get('loccountrycode')
 
     # 4. Сохраняем в БД
     repo = UserRepo(session)
@@ -844,58 +1567,110 @@ async def process_steam_link(message: types.Message, state: FSMContext, session:
         telegram_id=message.from_user.id,
         steam_id=int(steam_id),
         username=username,
-        avatar=avatar
+        avatar=avatar,
+        country=country # Передаем страну
     )
     
-    # Сохраняем библиотеку (это может занять время, в идеале делать фоном, но пока так)
+    # Сохраняем библиотеку
     await repo.update_library(message.from_user.id, games)
+
+    # Формируем текст ответа
+    display_country = country if country else "US (по умолчанию)"
+    warning_text = ""
+    if not country:
+        warning_text = "\n⚠️ <i>Я не смог определить твой регион (Steam не отдал эти данные). Цены будут в долларах. Укажи страну в настройках профиля Steam и пришли ссылку снова, чтобы исправить.</i>"
 
     await state.clear()
     await message.answer(
         f"✅ <b>Успешно!</b>\n"
         f"👤 Ник: {username}\n"
-        f"🎮 Игр в библиотеке: {len(games)}\n\n"
+        f"🌍 Регион: {display_country}\n"
+        f"🎮 Игр в библиотеке: {len(games)}\n"
+        f"{warning_text}\n\n"
         "Теперь я знаю, во что ты играешь!",
         parse_mode="HTML"
     )import logging
+import re
+import datetime
 from aiogram import Router, types, F
 from aiogram.types import InputMediaPhoto, InputMediaVideo
 from aiogram.enums import ParseMode
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 
 from database.repo.games import GameRepo
+from database.repo.users import UserRepo
+from database.models.game import GamePrice
+from services.steam import steam_service
 from keyboards.pagination import get_media_pagination, get_info_pagination
 
 router = Router()
 
-# === ЛОГИКА ОТОБРАЖЕНИЯ ===
-
-async def send_game_interface(message: types.Message, game):
-    """Отправляет интерфейс игры: Медиа + Инфо"""
+# === ЛОГИКА ЦЕН ===
+async def get_actual_price(session: AsyncSession, game_id: int, user_id: int) -> str:
+    user_repo = UserRepo(session)
+    user = await user_repo.get_user(user_id)
+    country = user.country if (user and user.country) else "US"
     
-    # 1. Отправляем Медиа (Главная картинка)
-    header_url = game.locales.get('ru', {}).get('header_image') or \
-                 game.locales.get('en', {}).get('header_image') or \
-                 game.extra_data.get('header_image')
+    stmt = select(GamePrice).where(GamePrice.game_id == game_id, GamePrice.country_code == country)
+    result = await session.execute(stmt)
+    cached = result.scalars().first()
+    
+    now = datetime.datetime.now(datetime.timezone.utc)
+    
+    if cached and cached.updated_at:
+        last = cached.updated_at.replace(tzinfo=datetime.timezone.utc) if cached.updated_at.tzinfo is None else cached.updated_at
+        if (now - last).total_seconds() < 86400:
+            return cached.price_fmt
 
-    # Считаем сколько всего слайдов (скриншоты + видео)
-    screenshots = game.extra_data.get('screenshots', [])
-    movies = game.extra_data.get('movies', [])
+    new_price = await steam_service.get_game_price(game_id, country)
+    if new_price:
+        stmt = insert(GamePrice).values(game_id=game_id, country_code=country, price_fmt=new_price, updated_at=now)\
+            .on_conflict_do_update(index_elements=['game_id', 'country_code'], set_={"price_fmt": new_price, "updated_at": now})
+        await session.execute(stmt)
+        await session.commit()
+        return new_price
+    
+    return cached.price_fmt if cached else None
+
+# === ОТПРАВКА ИНТЕРФЕЙСА ===
+
+async def send_game_interface(message: types.Message, game, session: AsyncSession):
+    # 1. Данные
+    locales = game.locales or {}
+    extra_data = game.extra_data or {}
+    ru_data = locales.get('ru') or {}
+    en_data = locales.get('en') or {}
+    
+    header_url = ru_data.get('header_image') or en_data.get('header_image') or extra_data.get('header_image')
+    if not header_url: header_url = "https://via.placeholder.com/460x215?text=No+Image"
+
+    screenshots = extra_data.get('screenshots') or []
+    movies = extra_data.get('movies') or []
     total_media = len(screenshots) + len(movies)
 
-    # Кнопки для медиа (начинаем с индекса -1, это Header)
     media_kb = get_media_pagination(game.id, -1, total_media, "image")
     
-    await message.answer_photo(
-        photo=header_url,
-        caption="🖼 <b>Галерея</b> (Листай кнопками)",
-        reply_markup=media_kb,
-        parse_mode=ParseMode.HTML
-    )
+    # 2. Отправляем ФОТО (Обложка всегда с подписью названия игры)
+    img_msg = None
+    try:
+        img_msg = await message.answer_photo(
+            photo=header_url,
+            caption=f"🖼 <b>{game.name}</b>", # <--- ПОДПИСЬ ИГРЫ
+            reply_markup=media_kb,
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        logging.error(f"Error sending photo: {e}")
+        await message.answer("Не удалось загрузить фото.")
 
-    # 2. Отправляем Инфо (Страница 1)
-    info_text = get_page_text(game, 1)
-    info_kb = get_info_pagination(game.id, 1, 3) # Всего 3 страницы инфы
+    # 3. Текст
+    custom_price = await get_actual_price(session, game.id, message.chat.id)
+    info_text = get_page_text(game, 1, custom_price)
+    
+    image_msg_id = img_msg.message_id if img_msg else 0
+    info_kb = get_info_pagination(game.id, 1, 2, image_msg_id) 
     
     await message.answer(
         text=info_text,
@@ -904,58 +1679,61 @@ async def send_game_interface(message: types.Message, game):
         disable_web_page_preview=True
     )
 
-# === ГЕНЕРАТОР ТЕКСТА СТРАНИЦ ===
+# === ГЕНЕРАТОР ТЕКСТА ===
+def get_page_text(game, page: int, custom_price: str = None) -> str:
+    locales = game.locales or {}
+    extra_data = game.extra_data or {}
+    ru_data = locales.get('ru') or {}
+    en_data = locales.get('en') or {}
+    
+    desc = ru_data.get('short_desc') or en_data.get('short_desc') or "Описание отсутствует."
+    
+    if custom_price: price_str = custom_price
+    else:
+        if game.is_free: price_str = "Free"
+        elif game.price_current:
+            val = game.price_current
+            price_str = f"{int(val)}$" if val.is_integer() else f"{val}$"
+        else: price_str = "—"
 
-def get_page_text(game, page: int) -> str:
-    loc = game.locales.get('ru') or game.locales.get('en') or {}
+    release = game.release_date or "TBA"
+    year_match = re.search(r'\d{4}', release)
+    if year_match: release = year_match.group(0)
+
+    time_str = f"{int(game.time_main)} ч." if game.time_main else "—"
+    meta = f"{game.metacritic_score}" if game.metacritic_score else "—"
     
     if page == 1:
-        # СТРАНИЦА 1: Основная инфо
-        price = f"{game.price_current} $" if game.price_current else "Бесплатно/Неизв."
-        time_100 = f"~{game.time_100} ч." if game.time_100 else "Неизвестно"
-        meta = game.metacritic_score or "Нет"
-        
         return (
             f"🎮 <b>{game.name}</b>\n"
-            f"➖➖➖➖➖➖➖➖\n"
-            f"📅 <b>Дата выхода:</b> {game.release_date}\n"
-            f"💰 <b>Цена:</b> {price}\n"
-            f"⭐️ <b>Metacritic:</b> {meta}\n"
-            f"⏱ <b>Время на 100%:</b> {time_100}\n"
-            f"🏆 <b>Ачивок:</b> {game.achievements_count}\n"
-            f"👥 <b>Отзывов:</b> {game.reviews_total:,}"
+            f"⭐️ <b>{meta}</b>      ⏱ <b>{time_str}</b>\n\n"
+            f"{desc}\n\n"
+            f"📅 {release}    💰 <b>{price_str}</b>\n"
+            f"➖➖➖➖➖➖➖\n"
+            f"🏆 Ачивок: <b>{game.achievements_count}</b>   👥 Отзывов: <b>{game.reviews_total:,}</b>".replace(',', ' ')
         )
     
     elif page == 2:
-        # СТРАНИЦА 2: Описание
-        # Очищаем HTML теги (просто, для примера)
-        desc = loc.get('short_desc') or "Описание отсутствует."
-        # Если есть детальное описание, можно взять кусок оттуда
-        return f"📝 <b>Описание:</b>\n\n{desc}"
-    
-    elif page == 3:
-        # СТРАНИЦА 3: Системные требования и Разработчики
-        devs = ", ".join(game.extra_data.get('developers', []))
-        reqs = game.extra_data.get('pc_requirements', {})
-        min_req = reqs.get('minimum', 'Не указаны')
-        
-        # Чистим HTML в требованиях (очень грубо, лучше использовать BeautifulSoup)
-        min_req = min_req.replace("<br>", "\n").replace("<strong>", "").replace("</strong>", "")
-        
+        devs = ", ".join(extra_data.get('developers') or ["Неизвестно"])
+        pubs = ", ".join(extra_data.get('publishers') or ["Неизвестно"])
+        reqs = extra_data.get('pc_requirements') or {}
+        if isinstance(reqs, list): reqs = {}
+        min_req = re.sub(r'<[^>]+>', '', str(reqs.get('minimum', 'Не указаны'))).replace("Minimum:", "").strip()
+        if len(min_req) > 500: min_req = min_req[:500] + "..."
+
         return (
-            f"🛠 <b>Техническая инфо:</b>\n\n"
-            f"👨‍💻 <b>Разработчики:</b> {devs}\n\n"
-            f"⚙️ <b>Минимальные требования:</b>\n{min_req[:500]}..." # Обрезаем, если длинно
+            f"🛠 <b>Системные требования:</b>\n"
+            f"<code>{min_req}</code>\n\n"
+            f"👨‍💻 <b>Разработчик:</b> {devs}\n"
+            f"📢 <b>Издатель:</b> {pubs}\n"
+            f"🆔 <b>AppID:</b> <code>{game.id}</code>"
         )
-    
-    return "Ошибка страницы"
+    return "Error"
 
-# === ХЕНДЛЕРЫ ПЕРЕКЛЮЧЕНИЯ ===
+# === ХЕНДЛЕРЫ ===
 
-# 1. Переключение МЕДИА
 @router.callback_query(F.data.startswith("media_"))
 async def callback_media(callback: types.CallbackQuery, session: AsyncSession):
-    # data: media_GAMEID_INDEX
     parts = callback.data.split("_")
     game_id = int(parts[1])
     index = int(parts[2])
@@ -964,63 +1742,97 @@ async def callback_media(callback: types.CallbackQuery, session: AsyncSession):
     game = await repo.get_by_id(game_id)
     if not game: return
 
-    # Достаем списки
-    screenshots = game.extra_data.get('screenshots', [])
-    movies = game.extra_data.get('movies', [])
+    locales = game.locales or {}
+    extra_data = game.extra_data or {}
+    ru_data = locales.get('ru') or {}
+    en_data = locales.get('en') or {}
+    screenshots = extra_data.get('screenshots') or []
+    movies = extra_data.get('movies') or []
     total = len(screenshots) + len(movies)
 
-    # Определяем, что показывать
+    # Корректировка индекса
+    if index >= total and total > 0:
+        index = total - 1
+
     media_obj = None
+    current_url = ""
     
+    # === НАСТРОЙКА ПОДПИСИ ===
     if index == -1:
-        # Главная картинка
-        url = game.locales.get('ru', {}).get('header_image') or game.extra_data.get('header_image')
-        media_obj = InputMediaPhoto(media=url, caption="🖼 <b>Галерея</b>")
+        # Обложка: Название игры
+        caption = f"🖼 <b>{game.name}</b>"
+    else:
+        # Скриншоты/Видео: БЕЗ подписи
+        caption = None 
+
+    # 1. ОБЛОЖКА
+    if index == -1:
+        url = ru_data.get('header_image') or en_data.get('header_image') or extra_data.get('header_image')
+        if not url: url = "https://via.placeholder.com/460x215?text=No+Image"
+        current_url = url
+        media_obj = InputMediaPhoto(media=url, caption=caption, parse_mode=ParseMode.HTML)
     
+    # 2. СКРИНШОТ
     elif 0 <= index < len(screenshots):
-        # Скриншот
-        url = screenshots[index]
-        media_obj = InputMediaPhoto(media=url, caption=f"📸 Скриншот {index+1}")
-        
+        current_url = screenshots[index]
+        media_obj = InputMediaPhoto(media=current_url, caption=caption, parse_mode=ParseMode.HTML)
+    
+    # 3. ВИДЕО
     elif index >= len(screenshots):
-        # Видео
         vid_index = index - len(screenshots)
-        url = movies[vid_index]
-        # Важно: Видео может не грузиться, если формат не тот. 
-        # Steam часто дает .webm, который Телеграм не любит. Лучше искать .mp4
-        media_obj = InputMediaVideo(media=url, caption=f"🎥 Трейлер {vid_index+1}")
+        if vid_index < len(movies):
+            current_url = movies[vid_index]
+            media_obj = InputMediaVideo(media=current_url, caption=caption, parse_mode=ParseMode.HTML)
 
-    # Обновляем сообщение
-    try:
-        kb = get_media_pagination(game_id, index, total, "mixed")
-        await callback.message.edit_media(media=media_obj, reply_markup=kb)
-    except Exception as e:
-        logging.error(f"Ошибка медиа: {e}")
-        await callback.answer("Не удалось загрузить медиа (возможно, формат не поддерживается).")
+    if media_obj:
+        try:
+            kb = get_media_pagination(game_id, index, total, "mixed")
+            await callback.message.edit_media(media=media_obj, reply_markup=kb)
+        except Exception as e:
+            # === САМООЧИСТКА ===
+            logging.error(f"❌ Битый файл обнаружен: {current_url}. Ошибка: {e}")
+            
+            deleted = await repo.delete_broken_media(game_id, current_url)
+            
+            if deleted:
+                await callback.answer("⚠️ Файл поврежден. Исправляю...", show_alert=False)
+                
+                new_total = total - 1
+                if index >= new_total and index > -1:
+                    index = index - 1
+                
+                # Используем model_copy для рекурсии
+                new_callback = callback.model_copy(update={"data": f"media_{game_id}_{index}"})
+                await callback_media(new_callback, session)
+            else:
+                await callback.answer("Ошибка загрузки.", show_alert=True)
+            
+    else:
+        if index != -1:
+             new_callback = callback.model_copy(update={"data": f"media_{game_id}_-1"})
+             await callback_media(new_callback, session)
 
-# 2. Переключение ИНФО (Страницы)
 @router.callback_query(F.data.startswith("info_"))
 async def callback_info(callback: types.CallbackQuery, session: AsyncSession):
-    # data: info_GAMEID_PAGE
     parts = callback.data.split("_")
     game_id = int(parts[1])
     page = int(parts[2])
+    image_msg_id = int(parts[3]) if len(parts) > 3 else 0
     
     repo = GameRepo(session)
     game = await repo.get_by_id(game_id)
-    
     if not game: return
 
-    text = get_page_text(game, page)
-    kb = get_info_pagination(game_id, page, 3)
+    custom_price = await get_actual_price(session, game.id, callback.message.chat.id)
+    text = get_page_text(game, page, custom_price)
     
-    # edit_text, так как это текстовое сообщение
+    kb = get_info_pagination(game.id, page, 2, image_msg_id)
+    
     try:
         await callback.message.edit_text(text, reply_markup=kb, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     except Exception:
-        await callback.answer() # Если текст не изменился
+        await callback.answer()
 
-# 3. Входная точка (из поиска)
 @router.callback_query(F.data.startswith("view_game_"))
 async def callback_view_game_entry(callback: types.CallbackQuery, session: AsyncSession):
     game_id = int(callback.data.split("_")[2])
@@ -1029,7 +1841,7 @@ async def callback_view_game_entry(callback: types.CallbackQuery, session: Async
     
     if game:
         await callback.message.delete()
-        await send_game_interface(callback.message, game)
+        await send_game_interface(callback.message, game, session)
     else:
         await callback.answer("Игра не найдена.")# Файл: steam_bot/handlers/base.py
 
@@ -1151,4 +1963,22 @@ async def update_game():
     await engine.dispose()
 
 if __name__ == "__main__":
-    asyncio.run(update_game())
+    asyncio.run(update_game())import asyncio
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
+from config import conf
+
+async def fix_db():
+    engine = create_async_engine(conf.database_url, echo=True)
+    
+    print("🔧 Исправляем таблицу users...")
+    
+    async with engine.begin() as conn:
+        # Добавляем недостающую колонку avatar_url
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR;"))
+        
+    print("✅ Колонка avatar_url успешно добавлена!")
+    await engine.dispose()
+
+if __name__ == "__main__":
+    asyncio.run(fix_db())

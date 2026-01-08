@@ -1,4 +1,4 @@
-from sqlalchemy import Column, BigInteger, String, Integer, ForeignKey, DateTime
+from sqlalchemy import Column, BigInteger, String, Integer, Boolean, JSON, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .base import Base
@@ -10,11 +10,9 @@ class User(Base):
     steam_id = Column(BigInteger, unique=True, nullable=True)
     
     username = Column(String, nullable=True)
-    language = Column(String, default="ru")
-    avatar_url = Column(String, nullable=True)
     
-    # НОВОЕ ПОЛЕ
-    country = Column(String, default="US") 
+    # ВОТ ЭТА КОЛОНКА ОТВЕЧАЕТ ЗА ЯЗЫК
+    language = Column(String, default="ru") 
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     

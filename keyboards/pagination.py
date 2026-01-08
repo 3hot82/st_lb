@@ -1,70 +1,92 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from fluent.runtime import FluentLocalization
 
-def get_media_pagination(game_id: int, current_index: int, total_count: int, media_type: str) -> InlineKeyboardMarkup:
-    """Кнопки для листания картинок (Верхнее сообщение)"""
+def get_media_pagination(l10n: FluentLocalization, game_id: int, current_index: int, total_count: int, media_type: str) -> InlineKeyboardMarkup:
+    """
+    Кнопки для листания медиа (Скриншоты/Видео).
+    
+    current_index:
+      -1 = Обложка (Cover)
+       0..N = Скриншоты
+    """
     builder = InlineKeyboardBuilder()
     
-    if current_index > -1:
-        builder.button(text="⬅️", callback_data=f"media_{game_id}_{current_index - 1}")
-    
+    # === СЦЕНАРИЙ 1: МЫ НА ОБЛОЖКЕ ===
     if current_index == -1:
-        label = "Обложка"
-        action = "ignore"
+        # Показываем кнопку "Вперед", только если есть скриншоты
+        if total_count > 0:
+            builder.button(text="➡️", callback_data=f"media_{game_id}_0")
+        
+        # Кнопок в ряду: 1
+        builder.adjust(1)
+
+    # === СЦЕНАРИЙ 2: МЫ СМОТРИМ СКРИНШОТЫ ===
     else:
-        label = f"Скрин {current_index + 1}/{total_count}"
-        action = f"media_{game_id}_-1"
+        # 1. Кнопка НАЗАД
+        # Если current_index = 0, то (0 - 1) = -1 (вернет на обложку)
+        builder.button(text="⬅️", callback_data=f"media_{game_id}_{current_index - 1}")
+        
+        # 2. Кнопка СЧЕТЧИК (При нажатии возвращает на обложку)
+        builder.button(
+            text=f"{current_index + 1}/{total_count}", 
+            callback_data=f"media_{game_id}_-1" # -1 ведет на обложку
+        )
 
-    builder.button(text=f"🖼 {label}", callback_data=action)
-
-    if current_index < total_count - 1:
-        builder.button(text="➡️", callback_data=f"media_{game_id}_{current_index + 1}")
+        # 3. Кнопка ВПЕРЕД
+        if current_index < total_count - 1:
+            builder.button(text="➡️", callback_data=f"media_{game_id}_{current_index + 1}")
+        
+        # Выравнивание: 3 кнопки в ряд (или 2, если это последний слайд)
+        builder.adjust(3)
     
-    width = 1
-    if current_index > -1: width += 1
-    if current_index < total_count - 1: width += 1
-    
-    builder.adjust(width)
     return builder.as_markup()
 
-# === ИЗМЕНЕНИЕ ЗДЕСЬ ===
-def get_info_pagination(game_id: int, current_page: int, total_pages: int, image_msg_id: int = 0) -> InlineKeyboardMarkup:
+def get_info_pagination(game_id: int, current_page: int, total_pages: int) -> InlineKeyboardMarkup:
     """
-    Кнопки для текста.
-    image_msg_id: ID сообщения с картинкой, которое висит выше.
+    Кнопки для листания страниц текста (Инфо <-> Требования).
     """
     builder = InlineKeyboardBuilder()
     
-    # Мы добавляем image_msg_id в callback_data кнопок навигации, 
-    # чтобы не потерять его при переключении страниц текста.
-    # Формат: info_GAMEID_PAGE_IMGID
+    # Навигация страниц
+    if current_page > 1:
+        builder.button(text="⬅️", callback_data=f"info_{game_id}_{current_page - 1}")
     
-    if total_pages == 2:
-        if current_page == 1:
-            builder.button(text="🛠 Требования и Детали ➡️", callback_data=f"info_{game_id}_2_{image_msg_id}")
-        else:
-            builder.button(text="⬅️ Об игре", callback_data=f"info_{game_id}_1_{image_msg_id}")
-    else:
-        if current_page > 1:
-            builder.button(text="⬅️", callback_data=f"info_{game_id}_{current_page - 1}_{image_msg_id}")
-        builder.button(text=f"{current_page}/{total_pages}", callback_data="ignore")
-        if current_page < total_pages:
-            builder.button(text="➡️", callback_data=f"info_{game_id}_{current_page + 1}_{image_msg_id}")
+    builder.button(text=f"📄 {current_page}/{total_pages}", callback_data="ignore")
     
-    builder.adjust(1)
+    if current_page < total_pages:
+        builder.button(text="➡️", callback_data=f"info_{game_id}_{current_page + 1}")
     
-    row_btns = []
+    return builder.as_markup()
+
+def get_achievements_pagination(l10n: FluentLocalization, game_id: int, current_index: int, total_count: int) -> InlineKeyboardMarkup:
+    """
+    Кнопки для листания ачивок (Галерея).
+    """
+    builder = InlineKeyboardBuilder()
     
-    # === ГЛАВНОЕ ИЗМЕНЕНИЕ ===
-    # Передаем image_msg_id в кнопку ачивок: ach_GAMEID_INDEX_IMGID
-    row_btns.append(
-        InlineKeyboardBuilder().button(text="🏆 Ачивки", callback_data=f"ach_{game_id}_0_{image_msg_id}").as_markup().inline_keyboard[0][0]
+    # Ряд 1: Навигация [⬅️] [X / N] [➡️]
+    
+    # Кнопка НАЗАД
+    if current_index > 0:
+        builder.button(text="⬅️", callback_data=f"achievements_{game_id}_{current_index - 1}")
+    
+    # Счетчик (просто текст)
+    builder.button(text=f"{current_index + 1} / {total_count}", callback_data="ignore")
+
+    # Кнопка ВПЕРЕД
+    if current_index < total_count - 1:
+        builder.button(text="➡️", callback_data=f"achievements_{game_id}_{current_index + 1}")
+    
+    # Выравниваем первый ряд (3 кнопки)
+    builder.adjust(3)
+    
+    # Ряд 2: Кнопка возврата к игре (на всю ширину)
+    builder.row(
+        InlineKeyboardButton(
+            text=l10n.format_value("btn-back-to-game"), 
+            callback_data=f"info_{game_id}_1"
+        )
     )
-    
-    row_btns.append(
-        InlineKeyboardBuilder().button(text="🛒 Steam", url=f"https://store.steampowered.com/app/{game_id}/").as_markup().inline_keyboard[0][0]
-    )
-    
-    builder.row(*row_btns)
     
     return builder.as_markup()

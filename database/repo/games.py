@@ -1,8 +1,7 @@
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text, or_, and_, func, case
-from sqlalchemy.orm.attributes import flag_modified # <--- ВАЖНЫЙ ИМПОРТ
-from database.models import Game, Achievement
+from database.models import Game, Achievement # <--- Добавлен Achievement
 from services.text_utils import clean_query, fix_layout
 
 class GameRepo:
@@ -18,52 +17,29 @@ class GameRepo:
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    async def get_achievements(self, game_id: int) -> list[Achievement]:
-        stmt = select(Achievement).where(Achievement.game_id == game_id).order_by(Achievement.global_percent.desc())
+    # === МЕТОДЫ ДЛЯ АЧИВОК ===
+    async def get_achievements(self, game_id: int, page: int = 1, limit: int = 10):
+        offset = (page - 1) * limit
+        # Сортировка по редкости (самые частые первыми)
+        stmt = select(Achievement).where(Achievement.game_id == game_id)\
+            .order_by(Achievement.global_percent.desc())\
+            .limit(limit).offset(offset)
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    # === ИСПРАВЛЕННЫЙ МЕТОД ===
-    async def delete_broken_media(self, game_id: int, broken_url: str):
-        """Удаляет URL из списка и ПРИНУДИТЕЛЬНО сохраняет изменения"""
-        game = await self.get_by_id(game_id)
-        if not game: return False
+    async def count_achievements(self, game_id: int) -> int:
+        stmt = select(func.count(Achievement.id)).where(Achievement.game_id == game_id)
+        result = await self.session.execute(stmt)
+        return result.scalar()
 
-        # Получаем данные (копируем словарь)
-        extra = dict(game.extra_data) if game.extra_data else {}
-        changed = False
-
-        # Проверяем скриншоты
-        if 'screenshots' in extra and broken_url in extra['screenshots']:
-            extra['screenshots'].remove(broken_url)
-            changed = True
-            logging.warning(f"🗑 Удален битый скриншот: {broken_url}")
-
-        # Проверяем видео
-        if 'movies' in extra and broken_url in extra['movies']:
-            extra['movies'].remove(broken_url)
-            changed = True
-            logging.warning(f"🗑 Удалено битое видео: {broken_url}")
-
-        if changed:
-            # 1. Обновляем поле
-            game.extra_data = extra
-            
-            # 2. ВАЖНО: Явно помечаем поле как измененное для SQLAlchemy
-            flag_modified(game, "extra_data")
-            
-            # 3. Сохраняем
-            await self.session.commit()
-            return True
-            
-        return False
-
+    # === ПОИСК ===
     async def search(self, query: str, limit: int = 10):
         raw_q = query.strip()
         clean_q = clean_query(raw_q)     
         switched_q = fix_layout(raw_q)   
         clean_switched = clean_query(switched_q)
         words = clean_q.split()
+        
         db_clean_name = func.regexp_replace(Game.name, r'[^a-zA-Z0-9а-яА-Я0-9]', ' ', 'g')
 
         conditions = []
@@ -71,7 +47,6 @@ class GameRepo:
         conditions.append(text("name % :switched"))
         conditions.append(db_clean_name.ilike(f"%{clean_q}%"))
         conditions.append(db_clean_name.ilike(f"%{clean_switched}%"))
-        
         if len(words) > 1:
             word_conditions = [Game.name.ilike(f"%{w}%") for w in words]
             conditions.append(and_(*word_conditions))
@@ -88,5 +63,5 @@ class GameRepo:
             result = await self.session.execute(stmt, {"q": clean_q, "switched": clean_switched})
             return result.scalars().all()
         except Exception as e:
-            logging.error(f"❌ Ошибка поиска: {e}")
+            logging.error(f"Search error: {e}")
             return []

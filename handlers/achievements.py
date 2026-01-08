@@ -1,103 +1,124 @@
 from aiogram import Router, types, F
-from aiogram.types import InputMediaPhoto
-from aiogram.enums import ContentType, ParseMode
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.enums import ContentType, ParseMode # <--- Важные импорты
 from sqlalchemy.ext.asyncio import AsyncSession
+from fluent.runtime import FluentLocalization
 
 from database.repo.games import GameRepo
-from keyboards.achievements import get_achievements_pagination
-from services.game_sync import sync_game_achievements # <--- Импортируем наш новый сервис
 
 router = Router()
 
-@router.callback_query(F.data.startswith("ach_"))
-async def achievement_navigation(callback: types.CallbackQuery, session: AsyncSession):
-    # data: ach_GAMEID_INDEX_IMGID
+@router.callback_query(F.data.startswith("achievements_"))
+async def show_achievements(callback: types.CallbackQuery, session: AsyncSession, l10n: FluentLocalization):
+    # Формат data: achievements_{game_id}_page_{page}
     parts = callback.data.split("_")
     game_id = int(parts[1])
-    index = int(parts[2])
-    image_msg_id = int(parts[3]) if len(parts) > 3 else 0
     
+    # Логика определения страницы
+    if "page" in parts[2]:
+        page_num = int(parts[3])
+        page = page_num
+    else:
+        page = 1
+
     repo = GameRepo(session)
     
-    # 1. Пробуем получить ачивки из базы
-    achievements = await repo.get_achievements(game_id)
+    # 1. Считаем количество
+    total_count = await repo.count_achievements(game_id)
     
-    # 2. Если в базе пусто — пробуем загрузить из Steam
-    if not achievements:
-        # Показываем уведомление (Toast), чтобы юзер не скучал
-        await callback.answer("⏳ Ачивки не найдены. Загружаю из Steam...", show_alert=False)
-        
-        # Запускаем синхронизацию
-        success = await sync_game_achievements(session, game_id)
-        
-        if success:
-            # Если успешно, запрашиваем список снова
-            achievements = await repo.get_achievements(game_id)
-        else:
-            return await callback.answer("❌ У этой игры нет ачивок или ошибка Steam.", show_alert=True)
+    if total_count == 0:
+        await callback.answer(l10n.format_value("ach-empty"), show_alert=True)
+        return
 
-    # Если после загрузки все равно пусто (странно, но бывает)
-    if not achievements:
-        return await callback.answer("Список ачивок пуст.", show_alert=True)
+    # Индекс текущей ачивки
+    current_index = page - 1
+    if current_index < 0: current_index = 0
+    if current_index >= total_count: current_index = total_count - 1
+    
+    # 2. Получаем ОДНУ ачивку
+    ach_list = await repo.get_achievements(game_id, page=current_index+1, limit=1)
+    
+    if not ach_list:
+        await callback.answer("Ошибка загрузки")
+        return
+        
+    ach = ach_list[0]
 
-    total = len(achievements)
-    if index < 0: index = 0
-    if index >= total: index = total - 1
-    
-    ach = achievements[index]
-    
-    # --- ФОРМИРОВАНИЕ ТЕКСТА (как раньше) ---
+    # 3. Формируем текст
     locales = ach.locales or {}
-    ru_data = locales.get('ru') or {}
-    en_data = locales.get('en') or {}
-    name = ru_data.get('name') or en_data.get('name') or ach.api_name
+    user_lang = l10n.locales[0]
+    ach_data = locales.get(user_lang) or locales.get('en') or locales.get('ru') or {}
     
-    raw_desc = ru_data.get('desc') or en_data.get('desc')
-    if raw_desc: desc = raw_desc
-    elif ach.is_hidden: desc = "🔒 <i>Это скрытое достижение. Подробности раскрываются по ходу игры.</i>"
-    else: desc = "Описание отсутствует."
+    name = ach_data.get('displayName') or ach.api_name
+    raw_desc = ach_data.get('description')
+    
+    if raw_desc:
+        desc = raw_desc
+    elif ach.is_hidden:
+        desc = l10n.format_value("ach-locked-desc")
+    else:
+        desc = l10n.format_value("ach-no-desc")
     
     percent = ach.global_percent
-    rarity_emoji = "🟢"
-    rarity_text = "Обычная"
-    if percent < 10: 
-        rarity_emoji = "🔴"
-        rarity_text = "Легендарная"
-    elif percent < 30: 
-        rarity_emoji = "🟡"
-        rarity_text = "Редкая"
+    if percent < 10:
+        rarity_text = l10n.format_value("ach-rarity-legendary")
+    elif percent < 30:
+        rarity_text = l10n.format_value("ach-rarity-rare")
+    else:
+        rarity_text = l10n.format_value("ach-rarity-common")
     
     caption = (
         f"🏆 <b>{name}</b>\n\n"
         f"{desc}\n\n"
-        f"📊 {rarity_text}: {rarity_emoji} <b>{percent}%</b> игроков"
+        f"📊 {rarity_text} <b>{percent:.1f}%</b> {l10n.format_value('ach-players')}"
+    )
+
+    # 4. Клавиатура
+    builder = InlineKeyboardBuilder()
+    
+    if current_index > 0:
+        builder.button(text="⬅️", callback_data=f"achievements_{game_id}_page_{current_index}")
+    
+    builder.button(text=f"{current_index + 1} / {total_count}", callback_data="ignore")
+
+    if current_index < total_count - 1:
+        builder.button(text="➡️", callback_data=f"achievements_{game_id}_page_{current_index + 2}")
+    
+    builder.adjust(3)
+    
+    # Кнопка ВОЗВРАТА (view_game_ удалит ачивку и вернет игру)
+    builder.row(
+        types.InlineKeyboardButton(text=l10n.format_value("btn-back-to-game"), callback_data=f"view_game_{game_id}")
     )
     
-    keyboard = get_achievements_pagination(game_id, index, total)
+    # 5. ОТПРАВКА И УДАЛЕНИЕ СТАРОГО
     
-    # --- ОТПРАВКА ---
-    
+    # Если мы пришли из текстового меню (нажали кнопку "Ачивки" под игрой)
     if callback.message.content_type == ContentType.TEXT:
-        # Вход в режим ачивок
+        # 1. Удаляем сообщение с кнопками (текст игры)
         await callback.message.delete()
         
-        # Удаляем картинку игры, если она висит выше
-        if image_msg_id > 0:
-            try:
-                await callback.bot.delete_message(chat_id=callback.message.chat.id, message_id=image_msg_id)
-            except Exception:
-                pass 
+        # 2. !!! ВАЖНО: Пытаемся удалить сообщение с картинкой выше !!!
+        # Обычно оно имеет ID на 1 меньше текущего
+        try:
+            prev_msg_id = callback.message.message_id - 1
+            await callback.bot.delete_message(chat_id=callback.message.chat.id, message_id=prev_msg_id)
+        except Exception:
+            # Если не получилось (например, юзер удалил сам), игнорируем
+            pass
         
+        # 3. Отправляем ачивку (Фото + Текст одним сообщением)
         await callback.message.answer_photo(
             photo=ach.icon_url,
             caption=caption,
-            reply_markup=keyboard,
+            reply_markup=builder.as_markup(),
             parse_mode=ParseMode.HTML
         )
+        
+    # Если мы уже листаем ачивки (там уже фото) -> просто редактируем
     else:
-        # Листание
-        media = InputMediaPhoto(media=ach.icon_url, caption=caption, parse_mode=ParseMode.HTML)
+        media = types.InputMediaPhoto(media=ach.icon_url, caption=caption, parse_mode=ParseMode.HTML)
         try:
-            await callback.message.edit_media(media=media, reply_markup=keyboard)
+            await callback.message.edit_media(media=media, reply_markup=builder.as_markup())
         except Exception:
             await callback.answer()

@@ -1,5 +1,3 @@
-# Файл: steam_bot/main.py
-
 import asyncio
 import logging
 import sys
@@ -8,6 +6,7 @@ from aiogram import Bot, Dispatcher
 from config import conf
 from database.core import session_maker
 from middlewares.db_session import DbSessionMiddleware
+from middlewares.i18n import I18nMiddleware  # <--- Добавили
 from handlers import get_handlers_router
 
 async def main():
@@ -23,16 +22,19 @@ async def main():
     bot = Bot(token=conf.bot_token)
     dp = Dispatcher()
 
-    # Подключаем Middleware (БД)
-    # Теперь в каждый хендлер будет прилетать аргумент session
+    # Подключаем Middleware
+    # 1. Сначала БД (чтобы сессия была доступна)
     dp.update.middleware(DbSessionMiddleware(session_pool=session_maker))
+    
+    # 2. Затем i18n (чтобы переводчик был доступен)
+    dp.update.middleware(I18nMiddleware())
 
     # Подключаем Хендлеры
     dp.include_router(get_handlers_router())
 
     logger.info("🚀 Бот запускается...")
     
-    # Удаляем вебхуки (чтобы не обрабатывать старые обновления)
+    # Удаляем вебхуки
     await bot.delete_webhook(drop_pending_updates=True)
     
     # Запуск
